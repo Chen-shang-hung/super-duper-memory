@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Product Manager</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        img.thumbnail { max-width: 100px; height: auto; }
+        th.sortable { cursor: pointer; position: relative; }
+        th.sortable::after { content: "↕"; position: absolute; right: 8px; }
+        th.asc::after { content: "↑"; }
+        th.desc::after { content: "↓"; }
+
+        .editable { cursor: pointer; }
+        .editing { background-color: #f0f8ff; }  /* A visual cue for editing */
+    </style>
+</head>
+<body>
+    <div class="container mt-5">
+        <h1 class="mb-4">Product Manager</h1>
+
+        <div class="row mb-3">
+            <div class="col-md-4">
+                <input type="text" id="search" class="form-control" placeholder="Search...">
+            </div>
+            <div class="col-md-2">
+                <button class="btn btn-primary" onclick="showAddModal()">Add Product</button>
+            </div>
+        </div>
+
+        <table class="table table-bordered table-striped">
+            <thead>
+                <tr>
+                    <th class="sortable" onclick="sortTable(0)">ID</th>
+                    <th class="sortable" onclick="sortTable(1)">Code</th>
+                    <th class="sortable" onclick="sortTable(2)">Description</th>
+                    <th>Image</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="productTableBody">
+                <!-- Dynamic content loaded via AJAX -->
+            </tbody>
+        </table>
+            <td>
+ <!--    <img src="${product.image}" class="thumbnail" alt="Product image" -->
+     <!--    onerror="this.style.display='none'; this.nextElementSibling.style.display='block'"> -->
+   <!-- <span style="display: none;"></span> -->
+</td>
+        <!-- Pagination -->
+        <nav aria-label="Page navigation">
+            <ul class="pagination justify-content-center" id="pagination">
+                <!-- Pagination links will be generated here -->
+            </ul>
+        </nav>
+         
+        <!-- Add/Edit Modal -->
+        <div class="modal fade" id="productModal" tabindex="-1">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Product Form</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <form id="productForm">
+                            <input type="hidden" id="editId">
+                            <div class="mb-3">
+                                <label for="editcodigo" class="form-label">Code</label>
+                                <input type="text" class="form-control" id="editcodigo" required>
+                            </div>
+                            <div class="mb-3">
+                                <label for="editdescricao" class="form-label">Descricao</label>
+                                <textarea class="form-control" id="editdescricao" required></textarea>
+                            </div>
+                            <div class="mb-3">
+                                <label for="editimage" class="form-label">Image</label>
+                                <input type="file" class="form-control" id="editimage" accept="image/*">
+                            </div>
+                        </form>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                        <button type="button" class="btn btn-primary" onclick="saveProduct()">Save</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let currentSortColumn = null;
+        let sortDirection = 1; // 1 = asc, -1 = desc
+        let currentPage = 1;
+        const productsPerPage = 8; // You can adjust this
+        let currentSearchTerm = ''; // Store the current search term
+
+        let productModal;  // Declare a global variable
+
+        // Initial load
+        document.addEventListener('DOMContentLoaded', () => {
+            loadProducts(1, ''); // Load the first page with no search term initially
+            document.getElementById('search').addEventListener('input', searchTable);
+
+            // Initialize the modal
+            const modalElement = document.getElementById('productModal');
+            if (modalElement) {
+                productModal = new bootstrap.Modal(modalElement);
+            }
+        });
+
+        async function loadProducts(page, searchTerm) {
+            currentPage = page;
+            currentSearchTerm = searchTerm; // Update the current search term
+            try {
+                let url = `crud.php?action=read&page=${page}&per_page=${productsPerPage}`;
+                if (searchTerm) {
+                    url += `&search=${encodeURIComponent(searchTerm)}`; // Add search term to the URL
+                }
+                const response = await fetch(url);
+                const data = await response.json();
+                renderTable(data.products);
+                renderPagination(data.total_products, productsPerPage, page, searchTerm); // Pass searchTerm to renderPagination
+            } catch (error) {
+                console.error('Error loading products:', error);
+            }
+        }
+
+        function renderTable(products) {
+            const tbody = document.getElementById('productTableBody');
+            tbody.innerHTML = products.map(product => `
+                <tr data-id="${product.id}">
+                    <td>${product.id}</td>
+                    <td class="editable" data-field="codigo" onclick="makeEditable(this, ${product.id})">${product.codigo}</td>
+                    <td class="editable" data-field="descricao" onclick="makeEditable(this, ${product.id})">${product.descricao}</td>
+                    <td><img src="${product.image}" class="thumbnail" alt="Product image"></td>
+                    <td>
+                        <button class="btn btn-sm btn-warning me-2" onclick="editProduct(${product.id})">Edit</button>
+                        <button class="btn btn-sm btn-danger" onclick="deleteProduct(${product.id})">Delete</button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function renderPagination(totalProducts, productsPerPage, currentPage, searchTerm) {
+            const totalPages = Math.ceil(totalProducts / productsPerPage);
+            const pagination = document.getElementById('pagination');
+            pagination.innerHTML = '';
+
+            const maxLinksToShow = 10;  // Maximum number of pagination links to display
+            let startPage = currentPage - Math.floor(maxLinksToShow / 2);
+            let endPage = currentPage + Math.floor(maxLinksToShow / 2);
+
+            if (startPage < 1) {
+                startPage = 1;
+                endPage = Math.min(totalPages, maxLinksToShow);
+            }
+
+            if (endPage > totalPages) {
+                endPage = totalPages;
+                startPage = Math.max(1, totalPages - maxLinksToShow + 1);
+            }
+
+            // Add "Previous" link if not on the first page
+            if (currentPage > 1) {
+                const liPrev = document.createElement('li');
+                liPrev.classList.add('page-item');
+                const aPrev = document.createElement('a');
+                aPrev.classList.add('page-link');
+                aPrev.href = '#';
+                aPrev.textContent = 'Previous';
+                aPrev.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    loadProducts(currentPage - 1, searchTerm); // Pass searchTerm
+                });
+                liPrev.appendChild(aPrev);
+                pagination.appendChild(liPrev);
+            }
+
+            for (let i = startPage; i <= endPage; i++) {
+                const li = document.createElement('li');
+                li.classList.add('page-item');
+                if (i === currentPage) {
+                    li.classList.add('active');
+                }
+                const a = document.createElement('a');
+                a.classList.add('page-link');
+                a.href = '#';
+                a.textContent = i;
+                a.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    loadProducts(i, searchTerm); // Pass searchTerm
+                });
+                li.appendChild(a);
+                pagination.appendChild(li);
+            }
+
+            // Add "Next" link if not on the last page
+            if (currentPage < totalPages) {
+                const liNext = document.createElement('li');
+                liNext.classList.add('page-item');
+                const aNext = document.createElement('a');
+                aNext.classList.add('page-link');
+                aNext.href = '#';
+                aNext.textContent = 'Next';
+                aNext.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    loadProducts(currentPage + 1, searchTerm); // Pass searchTerm
+                });
+                liNext.appendChild(aNext);
+                pagination.appendChild(liNext);
+            }
+        }
+
+        function sortTable(columnIndex) {
+            const header = document.querySelectorAll('th.sortable')[columnIndex];
+            const isSameColumn = header === currentSortColumn;
+
+            if (isSameColumn) {
+                sortDirection *= -1;
+            } else {
+                sortDirection = 1;
+                document.querySelectorAll('th.sortable').forEach(h => h.classList.remove('asc', 'desc'));
+            }
+
+            header.classList.toggle('asc', sortDirection === 1);
+            header.classList.toggle('desc', sortDirection === -1);
+            currentSortColumn = header;
+
+            const rows = Array.from(document.querySelectorAll('#productTableBody tr'));
+            rows.sort((a, b) => {
+                const aValue = a.cells[columnIndex].textContent;
+                const bValue = b.cells[columnIndex].textContent;
+                return sortDirection * aValue.localeCompare(bValue, undefined, { numeric: true });
+            });
+
+            rows.forEach(row => document.getElementById('productTableBody').appendChild(row));
+        }
+
+        function searchTable() {
+            const searchTerm = document.getElementById('search').value.toLowerCase();
+            loadProducts(1, searchTerm); // Reset to page 1 with the new search term
+        }
+
+             function makeEditable(td, productId) {
+    if (td.classList.contains('editing')) return;
+
+    const originalValue = td.textContent;
+    const field = td.dataset.field;
+
+    // Escape special characters for HTML and JavaScript
+    const escapedValue = originalValue
+        .replace(/"/g, '&quot;')  // Escape for HTML attributes
+        .replace(/'/g, "\\'");    // Escape for JavaScript strings
+
+    td.classList.add('editing');
+    td.innerHTML = `
+        <input type="text" value="${escapedValue}" />
+        <button type="button" onclick="saveInlineEdit(this.parentNode, ${productId}, '${field.replace(/'/g, "\\'")}')">Save</button>
+        <button type="button" onclick="cancelInlineEdit(event, this.parentNode, '${escapedValue}')">Cancel</button>
+    `;
+
+    const input = td.querySelector('input');
+    input.focus();
+    input.select();
+}
+
+function cancelInlineEdit(event, td, originalValue) {
+    event.preventDefault(); // Prevent default button behavior (e.g., form submission)
+    
+    // Force blur the input/button to remove focus
+    if (document.activeElement) {
+        document.activeElement.blur();
+    }
+
+    // Delay reverting to ensure UI updates smoothly
+    setTimeout(() => {
+        td.classList.remove('editing');
+        td.textContent = originalValue; // Safely restore original text
+    }, 10);
+}
+
+        async function saveInlineEdit(td, productId, field) {
+            const newValue = td.querySelector('input').value;
+
+            try {
+                const response = await fetch('crud.php', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: `action=updateField&id=${productId}&field=${field}&value=${newValue}`,
+                });
+
+                if (response.ok) {
+                    td.classList.remove('editing');
+                    td.textContent = newValue; // Update the table cell with the new value
+                } else {
+                    console.error('Error updating field:', response.statusText);
+                    alert('Failed to update.  See console for details.');
+                    cancelInlineEdit(td, td.textContent);  // Revert on failure
+                }
+            } catch (error) {
+                console.error('Error updating field:', error);
+                alert('Failed to update.  See console for details.');
+                cancelInlineEdit(td, td.textContent);  // Revert on failure
+            }
+        }
+
+   async function saveProduct() {
+    const formData = new FormData();
+    const editId = document.getElementById('editId').value;
+    
+    // Add action parameter based on edit mode
+    const action = editId ? 'update' : 'create';
+    formData.append('action', action);
+
+    // Get form values
+    const codigo = document.getElementById('editcodigo').value;
+    const descricao = document.getElementById('editdescricao').value;
+    const imageFile = document.getElementById('editimage').files[0];
+
+    // Validate required fields
+    if (!codigo || !descricao) {
+        alert('Code and Description are required!');
+        return;
+    }
+
+    // Append fields to FormData
+    formData.append('codigo', codigo);
+    formData.append('descricao', descricao);
+    if (imageFile) formData.append('image', imageFile);
+    if (editId) formData.append('id', editId);
+
+    try {
+        const response = await fetch('crud.php', {
+            method: 'POST',
+            body: formData
+        });
+
+        const responseText = await response.text();
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status} - ${responseText}`);
+        }
+
+        productModal.hide();
+        loadProducts(currentPage, currentSearchTerm);
+    } catch (error) {
+        console.error('Save error:', error.message);
+        alert('Failed to save. Check console for details.');
+    }
+}
+
+
+
+        async function editProduct(id) {
+    try {
+        const response = await fetch(`crud.php?action=editItem&id=${id}`);
+        if (!response.ok) throw new Error(`HTTP error! ${response.status}`);
+        
+        const product = await response.json();
+        
+        // Populate form fields
+        document.getElementById('editId').value = product.id;
+        document.getElementById('editcodigo').value = product.codigo;
+        document.getElementById('editdescricao').value = product.descricao;
+
+        // Get image container and remove existing previews
+        const imageContainer = document.querySelector('#editimage').parentNode;
+        const existingPreviews = imageContainer.querySelectorAll('img.thumbnail.mb-2');
+        existingPreviews.forEach(img => img.remove());
+
+        // Show current image preview
+        const imgPreview = document.createElement('img');
+        imgPreview.src = product.image;
+        imgPreview.className = 'thumbnail mb-2';
+        imgPreview.onerror = () => imgPreview.remove();
+     
+         const fileInput = document.getElementById('editimage');
+     
+        fileInput.value = '';
+
+        productModal.show();
+    } catch (error) {
+        console.error('Edit error:', error);
+        alert(`Edit failed: ${error.message}`);
+    }
+}
+
+// Cleanup image preview when modal is closed
+document.getElementById('editProductModal').addEventListener('hidden.bs.modal', function() {
+    const imageContainer = document.querySelector('#editimage').parentNode;
+    const existingPreviews = imageContainer.querySelectorAll('img.thumbnail.mb-2');
+    const fileInput = document.getElementById('editimage');
+    existingPreviews.forEach(img => img.remove());
+     // Reset file input
+    fileInput.value = '';
+
+});
+      
+        
+        async function deleteProduct(id) {
+            if (confirm('Are you sure you want to delete this product?')) {
+                try {
+                    await fetch(`crud.php?action=delete&id=${id}`);
+                    loadProducts(currentPage, currentSearchTerm); // Reload the current page and search term
+                } catch (error) {
+                    console.error('Error deleting product:', error);
+                }
+            }
+        }
+  
+        function showAddModal() {
+    document.getElementById('productForm').reset();
+    document.getElementById('editId').value = '';
+    
+    // Clear file input and preview
+    const imageContainer = document.querySelector('#editimage').parentNode;
+    const fileInput = document.getElementById('editimage');
+    
+    // Remove existing preview
+    const existingPreview = imageContainer.querySelector('img');
+    if (existingPreview) existingPreview.remove();
+    
+    // Reset file input
+    fileInput.value = '';
+    
+    productModal.show();
+}
+
+// Cleanup when modal closes
+document.getElementById('productModal').addEventListener('hidden.bs.modal', function() {
+    const imageContainer = document.querySelector('#editimage').parentNode;
+    const existingPreview = imageContainer.querySelector('img');
+    if (existingPreview) existingPreview.remove();
+});
+
+// Update image preview handler
+document.getElementById('editimage').addEventListener('change', function(e) {
+    const container = this.parentNode;
+    const existingPreview = container.querySelector('img');
+    if (existingPreview) existingPreview.remove();
+
+    if (this.files && this.files[0]) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const img = document.createElement('img');
+            img.src = e.target.result;
+            img.className = 'thumbnail mb-2';
+            container.insertBefore(img, this);
+        };
+        reader.readAsDataURL(this.files[0]);
+    }
+});
+  
+
+    </script>
+</body>
+</html>
