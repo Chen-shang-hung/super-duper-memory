@@ -3,7 +3,7 @@
 // Add at the top of crud.php
 header('Content-Type: application/json');
 $servername = "localhost";
-$username = "mk";
+$username = "name";
 $password = "password";
 $dbname = "xlspdf";
 
